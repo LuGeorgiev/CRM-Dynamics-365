@@ -1,0 +1,42 @@
+﻿@using StudentManagment.Models.Home
+
+@model StudentManagment.Models.Home.StudentFilter
+
+@{
+    ViewBag.Title = "Students Managment - Filter students by status";
+    var selectModel = new List<SelectListItem>()
+{
+new SelectListItem() {Text="All", Value="0" },
+new SelectListItem() {Text="Enrolled", Value="1" },
+new SelectListItem() {Text="Graduated", Value="2" },
+new SelectListItem() {Text="Never Marticulated", Value="3" },
+new SelectListItem() {Text="On Hold", Value="4" },
+new SelectListItem() {Text="Unenrolled", Value="5" },
+};
+}
+
+<div class="jumbotron bg-info">
+    <h2 class="bg-primary text-center">@ViewBag.Title</h2>
+</div>
+
+<div class="row">
+    @using (Html.BeginForm("Index", "Students", FormMethod.Get, new { @class = "form-group" }))
+    {
+        <div class="col-lg-4 text-right">
+            @Html.LabelFor(s => s.Status, new { @class = "control-label " })
+        </div>
+        <div class="col-lg-4">
+            @Html.DropDownListFor(s => s.Status, selectModel, new { @class = "form-control" })
+        </div>
+
+        <button type="submit" class="btn btn-primary">
+            <i class="fa fa-check-square-o" aria-hidden="true"></i> Submit
+        </button >
+
+        @*<div class="col-lg-2 text-center">
+            <input type="submit" value="Submit" class="btn btn-primary" />
+        </div>*@
+    }
+</div>
+
+

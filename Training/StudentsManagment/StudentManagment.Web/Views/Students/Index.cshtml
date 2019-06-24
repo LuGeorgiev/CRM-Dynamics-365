@@ -1,0 +1,78 @@
+﻿@using StudentManagment.Models
+@using StudentManagment.Models.Student
+@using X.PagedList;
+@using X.PagedList.Mvc
+
+@*@model IEnumerable<StudentManagment.Models.Student.StudentViewModel>*@
+@model IPagedList<StudentViewModel>
+
+@{
+    ViewBag.Title = "Students Managment - Details";
+}
+
+<div class="jumbotron bg-info">
+    <h2 class="bg-primary text-center">@ViewBag.Title</h2>
+</div>
+@if (Model != null && Model.Count() > 0)
+{
+    <div class="row">
+        <table class="table table-bordered table-hover ">
+            <thead class="bg-info ">
+                <tr>
+                    <th class="col-lg-3">Student Id</th>
+                    <th class="col-lg-3">Student Full Name</th>
+                    <th class="col-lg-1">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in Model)
+                {
+                    <tr>
+                        <td>@item.StudentId</td>
+                        <td>
+                            @if (item.FirstName == null)
+                            {
+                                <span class="text-danger bg-warning">First name is missing </span>
+                            }
+                            else
+                            {
+                                <span>
+                                    @item.FirstName 
+                                </span>
+                            }
+
+                            @if (item.LastName == null)
+                            {
+                                <span class="text-danger bg-warning">Last name is missing </span>
+                            }
+                            else
+                            {
+                                <span>
+                                    @item.LastName
+                                </span>
+                            }
+                        </td>
+                        <td>
+                            @Html.ActionLink("Details", "Details", "Students", new { id = item.StudentId }, new { @class = "btn btn-primary" })                           
+                            @Html.ActionLink("Cases", "Cases", "Cases", new { id = item.StudentId }, new { @class = "btn btn-primary" })
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    <div class="bg-warning">
+        <h4>No Students with this status currently!</h4>
+    </div>
+}
+<a href="javascript:window.history.back()" class="btn btn-default"><i class="fa fa-arrow-left" aria-hidden="true"></i> Back</a>
+
+@if (Model != null && Model.Count() > 0)
+{
+    <div class="row">
+        @Html.PagedListPager(Model, page => Url.Action("Index", new { page, Status = -1 }))
+    </div>
+}

@@ -1,0 +1,75 @@
+﻿@using StudentManagment.Models
+@model StudentManagment.Models.Case.StudentWithCasesViewModel
+
+@{
+    ViewBag.Title = "Cases for student";
+}
+<div class="jumbotron bg-info">
+    <h2 class="bg-primary text-center">@ViewBag.Title</h2>
+    <div class="row">
+        <div class="col-lg-4 text-center">
+            <h4 class=" text-center text-primary">First name: @(Model.FirstName == null ? "Not Filled" : Model.FirstName)</h4>
+        </div>
+        <div class="col-lg-4 text-center">
+            <h4 class=" text-center text-primary">Last name: @(Model.LastName == null ? "Not Filled" : Model.LastName)</h4>
+        </div>
+        <div class="col-lg-4 text-center">
+            <h4 class="text-center text-primary">Student Id: @Model.StudentId</h4>
+        </div>
+    </div>
+    <div class="input-group">
+        <span class="input-group-addon"><i class="fa fa-search-plus" aria-hidden="true"></i></span>
+        <input class="form-control" id="myInput" type="text" placeholder="Search within Title">
+    </div>
+
+</div>
+@if (Model.Cases != null && Model.Cases.Count() > 0)
+{
+    <div class="row">
+        <table class="table table-bordered table-hover">
+            <thead class="bg-info">
+                <tr>
+                    <th>Case Subject</th>
+                    <th>Case Title</th>
+                    <th>Case Status</th>
+                    <th>
+                        <span>
+                            <i class="fa fa-thumbs-up" aria-hidden="true"></i>
+                        </span>
+                        Actions
+                    </th>
+                </tr>
+            </thead>
+            <tbody id="myTable">
+                @foreach (var item in Model.Cases)
+                {
+                    <tr>
+                        <td>@(item.Subject == null ? "Case subject is missing" : item.Subject)</td>
+                        <td class="case-title">@(item.Title == null ? "Case title is missing" : item.Title)</td>
+                        <td>@(item.Status == null ? "Case status is missing" : item.Status)</td>
+                        <td>
+                            @*This sould be POST request NOT href*@
+                            @Html.ActionLink("Resolve", "Resolve", "Cases", new { ticket = item.TicketNumber, id = Model.StudentId }, new { @class = "btn btn-primary" })
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    <div class="bg-warning">
+        <h4>Student has no cases</h4>
+    </div>
+}
+<a href="javascript:window.history.back()" class="btn btn-default"><i class="fa fa-arrow-left" aria-hidden="true"></i> Back</a>
+
+@section Scripts {
+    @Scripts.Render("~/bundles/jqueryval")
+
+}
+
+@*<script src="~/Scripts/Custom/FilterLines.js">
+    </script>*@
+
