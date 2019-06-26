@@ -146,15 +146,14 @@ namespace CustomWorkflows
                 #endregion
 
                 #region Update Account email
-
-                //Save email in account entity
+                
                 var customer = service.Retrieve(ACCOUNT, accountRef.Id, new ColumnSet(EMAIL_ATTRIBUTE));
                 customer.Attributes[EMAIL_ATTRIBUTE] = newMail;
                 service.Update(customer);
                 tracingService.Trace($"New email: {newMail} was saved in customer account");
                 #endregion
 
-
+                //Email to customer implemented with additional step in workflow
             }
             catch (Exception ex)
             {
