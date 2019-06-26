@@ -22,7 +22,6 @@ namespace CustomWorkflows
         [ReferenceTarget(ACCOUNT)]
         public InArgument<EntityReference> AccountReference { get; set; }
 
-
         //[Output("Set old Email")]
         //[AttributeTarget(ACCOUNT, EMAIL_ATTRIBUTE)]
         //public OutArgument<string> EmailOld { get; set; }
@@ -158,13 +157,16 @@ namespace CustomWorkflows
 
         private static Entity CreatFromPartySystem(IOrganizationService service, ITracingService tracingService)
         {
+            //TODO check how to sent from working user
             Entity fromActivityParty = new Entity(ACTIVITY_PARTY);
             WhoAmIRequest systemUserRequest = new WhoAmIRequest();
             WhoAmIResponse systemUserResponse = (WhoAmIResponse)service.Execute(systemUserRequest);
+
             Guid systemUserId = systemUserResponse.UserId;
             fromActivityParty[PARTY_ID] = new EntityReference("systemuser", systemUserId);
             fromActivityParty[ADDRESS_USED] = "admin@plugin.com";
             tracingService.Trace($"FROM active party created Id: {systemUserId}");
+
             return fromActivityParty;
         }
 
@@ -178,7 +180,7 @@ namespace CustomWorkflows
             incident["customerid"] = new EntityReference(ACCOUNT, targetId);
             incident["new_changeemailstatus"] = new OptionSetValue(100000001); //InProgress ALL EXCEPTIONS AFTER THIS OptionsSet Included
             incident["new_previousemail"] = preImageEmail;
-            incident["new_tochangeemail"] = postImageEmail;
+            incident[NEW_TO_CHANGE_EMAIL] = postImageEmail;
             incident["subjectid"] = new EntityReference("subject", Guid.Parse(SUBJECT_EMAIL_CHANGE_GUID));
 
             //incident.Attributes.Add("customerid", new EntityReference("account", targetId));
