@@ -6,6 +6,7 @@ using System;
 using System.Activities;
 using System.Collections.Generic;
 using System.Linq;
+
 using static CustomWorkflows.WorkflowConstants;
 
 namespace CustomWorkflows
@@ -48,6 +49,7 @@ namespace CustomWorkflows
             IOrganizationService service = serviceFactory.CreateOrganizationService(workflowContext.InitiatingUserId);
 
             #endregion
+
             try
             {
                 #region Delete previous traces from that workflow

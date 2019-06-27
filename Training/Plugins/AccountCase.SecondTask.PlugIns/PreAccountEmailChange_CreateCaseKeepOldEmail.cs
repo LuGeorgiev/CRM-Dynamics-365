@@ -39,6 +39,10 @@ namespace AccountCase.SecondTask.PlugIns
 
             try
             {
+                //NB
+                //Check for context.Message== UPDATE
+
+
                 // Delete All traces for thise plugin
                 DeleteAllTracesForThisPlugIn(service);
                 tracingService.Trace("Start of plug in PreAccountEmailChange_CreateCaseKeepOldEmail");

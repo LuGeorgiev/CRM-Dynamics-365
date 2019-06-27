@@ -45,7 +45,7 @@ namespace AccountCase.SecondTask.PlugIns
                 // Delete All traces for thise plugin
                 DeleteAllTracesForThisPlugIn(service);
 
-            tracingService.Trace("SET AS ASYNC: Start of plug in OnCaseCreateIfEmailChangeSubject_SentEmail");
+                tracingService.Trace("SET AS ASYNC: Start of plug in OnCaseCreateIfEmailChangeSubject_SentEmail");
                 Entity target = null;
 
                 if (context.InputParameters.Contains(TARGET_ENTITY)
@@ -62,7 +62,9 @@ namespace AccountCase.SecondTask.PlugIns
                     EntityReference subjectId = (EntityReference)target.Attributes[SUBJECT_ATTRIBUTE];
                     subject = service.Retrieve("subject", subjectId.Id, new ColumnSet(TITLE));
                 }
-
+                
+                //NB
+                // CHECK teh CUID for SUBJECT not the TITLE
                 if (subject == null
                     || !subject.Attributes.Contains(TITLE)
                     || subject.Attributes[TITLE].ToString() != "Email Change Request")
@@ -72,6 +74,8 @@ namespace AccountCase.SecondTask.PlugIns
                 }
 
                 //Retreive system user credentials for FROM party
+                //Plugin Context WhoAmI will be the person that is making the change. SYSTEM have to be the FROM party or SINGLE user
+
                 WhoAmIRequest systemUserRequest = new WhoAmIRequest();
                 WhoAmIResponse systemUserResponse = (WhoAmIResponse)service.Execute(systemUserRequest);
                 Guid systemUserId = systemUserResponse.UserId;
@@ -89,11 +93,13 @@ namespace AccountCase.SecondTask.PlugIns
                     return;
                 }
                 Entity caseCustomer = service.Retrieve(ACCOUNT, customerRef.Id, new ColumnSet(EMAIL_ADDRES_1));
-                if (caseCustomer == null)
+                if (caseCustomer == null) // IF NULL CONTACT
                 {
                     tracingService.Trace($"Customer was not retrieved from customerid: {customerRef.Id}");
                     return;
                 }
+                //NB
+                //Customer field may be CONTACT have to check weather it is account or contact !!!!
 
                 #region Not needed code to retrieve email from contact
                 //EntityReference contactRef = (EntityReference)caseCustomer.Attributes[PRIMARY_CONTACT_ID];
@@ -122,6 +128,8 @@ namespace AccountCase.SecondTask.PlugIns
                 email["subject"] = "Email change request";
                 email["description"] = "Dear Customer.Please CLICK to confirm you want to change the mail";
                 email["directioncode"] = true;
+                //NB
+                //ADD REGARDING FIELD 
 
                 Guid emailId = service.Create(email);
                 tracingService.Trace($"Email with Id: {emailId} was created");

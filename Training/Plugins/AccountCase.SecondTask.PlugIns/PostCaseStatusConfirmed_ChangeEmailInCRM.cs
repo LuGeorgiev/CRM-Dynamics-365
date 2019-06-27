@@ -75,8 +75,8 @@ namespace AccountCase.SecondTask.PlugIns
 
                 if (preImageEmailChangeStatus == null
                     || postImageEmailChangeStatus == null
-                    || preImageEmailChangeStatus != 100000001
-                    || postImageEmailChangeStatus != 100000002)
+                    || preImageEmailChangeStatus != 100000001 //InProcess
+                    || postImageEmailChangeStatus != 100000002) //Confirmed
                 {
                     tracingService.Trace("Transiotion from InProcess to Confirmed not observed!");
                     return;
@@ -91,10 +91,10 @@ namespace AccountCase.SecondTask.PlugIns
                 }
                 var incidentId = target.Attributes[INCIDENT_ID].ToString();
 
-
+                // ACCOUNT OR CONTACT CHECK
                 var incident = service.Retrieve(INCIDENT, Guid.Parse(incidentId), new ColumnSet(CUSTOMER_ID));
                 var customerRef = (EntityReference)incident.Attributes[CUSTOMER_ID];
-                Entity customer = service.Retrieve("account", customerRef.Id, new ColumnSet(true));
+                Entity customer = service.Retrieve("account", customerRef.Id, new ColumnSet(true));//NOT TRUE
 
                 var cases = new List<Entity>();
                 QueryExpression query = CreateQuery(customer);
@@ -109,6 +109,7 @@ namespace AccountCase.SecondTask.PlugIns
                     return;
                 }
 
+                //Create new object with the same GUID and update only fields that are needed !!! NEW OBJECT ALWAYS
                 var caseToSolve = cases[0];
                 caseToSolve[NEW_CHANGE_EMAIL_STATUS] = new OptionSetValue(100000004); //Approved status of ChangeEmailStatus field
                 caseToSolve[NEW_CHANGE_EMAIL_STATUS_REASON] = new OptionSetValue(100000002);//Approved - valid request
@@ -172,6 +173,8 @@ namespace AccountCase.SecondTask.PlugIns
                 }
 
                 //var accountToChangeEmail = service.Retrieve("account", customer.Id, new ColumnSet(EMAIL_ATTRIBUTE));
+
+                //NEW OBJECT WITH this GUID
                 customer.Attributes[EMAIL_ATTRIBUTE] = newMail;
 
                 service.Update(customer);
@@ -200,7 +203,7 @@ namespace AccountCase.SecondTask.PlugIns
 
             query.Criteria.AddCondition(new ConditionExpression(STATE_CODE, ConditionOperator.Equal, 0));
             query.Criteria.AddCondition(new ConditionExpression(CUSTOMER_ID, ConditionOperator.Equal, customer.Id));
-            query.Criteria.AddCondition(new ConditionExpression("title", ConditionOperator.Equal, "Email change"));
+            query.Criteria.AddCondition(new ConditionExpression("title", ConditionOperator.Equal, "Email change")); // BETTER SUBJECT GUID NOT STRING
 
             query.Criteria.FilterOperator = LogicalOperator.And;
             query.Orders.Add(new OrderExpression(CREATED_ON, OrderType.Descending));

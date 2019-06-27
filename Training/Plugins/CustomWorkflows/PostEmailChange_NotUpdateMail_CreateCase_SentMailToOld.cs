@@ -21,10 +21,7 @@ namespace CustomWorkflows
         [RequiredArgument]
         [ReferenceTarget(ACCOUNT)]
         public InArgument<EntityReference> AccountReference { get; set; }
-
-        //[Output("Set old Email")]
-        //[AttributeTarget(ACCOUNT, EMAIL_ATTRIBUTE)]
-        //public OutArgument<string> EmailOld { get; set; }
+        
 
         protected override void Execute(CodeActivityContext context)
         {
@@ -36,7 +33,7 @@ namespace CustomWorkflows
             ITracingService tracingService = context.GetExtension<ITracingService>();
             tracingService.Trace($"Start of: {WORKFLOW_NAME}");
 
-            if (workflowContext.Depth >= 2)
+            if (workflowContext.Depth > 2)
             {
                 tracingService.Trace("Depth is bigger than 1");
                 return;

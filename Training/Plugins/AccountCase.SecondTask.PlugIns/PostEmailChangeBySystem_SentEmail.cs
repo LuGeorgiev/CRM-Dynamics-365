@@ -75,6 +75,8 @@ namespace AccountCase.SecondTask.PlugIns
                     tracingService.Trace("Any target value was null");
                     return;
                 }
+                // IF Account is the trigger Depth ==2 !!!!
+
 
                 bool isSentMailNeeded = changeEmailStatus.Value == 100000004
                     && statusCode.Value == 1
