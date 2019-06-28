@@ -41,13 +41,17 @@ namespace CustomWorkflows
             tracingService.Trace($"Start of: {WORKFLOW_NAME}");
             if (workflowContext.Depth >= 2)
             {
-                tracingService.Trace("Depth is bigger than 1");
+                tracingService.Trace($"Depth is bigger than 1. Depth value: {workflowContext.Depth}");
+                return;
+            }
+            if (workflowContext.MessageName.ToLower() != "update")
+            {
+                tracingService.Trace($"Context message was different than Update. It was: {workflowContext.MessageName}");
                 return;
             }
             IOrganizationServiceFactory serviceFactory = context.GetExtension<IOrganizationServiceFactory>();
             // Use the context service to create an instance of IOrganizationService.             
             IOrganizationService service = serviceFactory.CreateOrganizationService(workflowContext.InitiatingUserId);
-
             #endregion
 
             try
@@ -121,7 +125,7 @@ namespace CustomWorkflows
                 }
                 #endregion
 
-                #region Resolve or Cancel all active cases with Emal change title that belongs to account
+                #region Resolve or Cancel all active cases with Email change title that belongs to account
 
                 QueryExpression query = CreatQueryForRetrieveActiveCasesByCustomer(accountRef);
                 var entityCollection = service.RetrieveMultiple(query);
@@ -148,10 +152,13 @@ namespace CustomWorkflows
                 #endregion
 
                 #region Update Account email
-                
-                var customer = service.Retrieve(ACCOUNT, accountRef.Id, new ColumnSet(EMAIL_ATTRIBUTE));
-                customer.Attributes[EMAIL_ATTRIBUTE] = newMail;
-                service.Update(customer);
+
+                //var customer = service.Retrieve(ACCOUNT, accountRef.Id, new ColumnSet(EMAIL_ATTRIBUTE));
+                var customerToUpdate = new Entity(ACCOUNT);
+
+                customerToUpdate.Id = accountRef.Id;
+                customerToUpdate.Attributes[EMAIL_ATTRIBUTE] = newMail;
+                service.Update(customerToUpdate);
                 tracingService.Trace($"New email: {newMail} was saved in customer account");
                 #endregion
 
@@ -168,15 +175,17 @@ namespace CustomWorkflows
 
         private static void CancelCase(IOrganizationService service, Entity currentCase)
         {
-            currentCase[NEW_CHANGE_EMAIL_STATUS] = new OptionSetValue(100000003); //Declined status of ChangeEmailStatus field
-            currentCase[NEW_CHANGE_EMAIL_STATUS_REASON] = new OptionSetValue(100000001);//Cancelled-Duplicated record
-            service.Update(currentCase);
-            //IS Update needed?
+            var incident = new Entity(INCIDENT);
+            incident.Id = currentCase.Id;
+
+            incident[NEW_CHANGE_EMAIL_STATUS] = new OptionSetValue(100000003); //Declined status of ChangeEmailStatus field
+            incident[NEW_CHANGE_EMAIL_STATUS_REASON] = new OptionSetValue(100000001);//Cancelled-Duplicated record
+            service.Update(incident);
 
             SetStateRequest request = new SetStateRequest()
             {
-                EntityMoniker = new EntityReference(INCIDENT, currentCase.Id),
-                State = new OptionSetValue(2), //Cancell Cace(incidend)
+                EntityMoniker = new EntityReference(INCIDENT, incident.Id),
+                State = new OptionSetValue(2), //Cancell Case(incidend)
                 Status = new OptionSetValue(6)
             };
             service.Execute(request);
@@ -184,21 +193,21 @@ namespace CustomWorkflows
 
         private static void ResolveCase(IOrganizationService service, Entity caseToSolve)
         {
-            caseToSolve[NEW_CHANGE_EMAIL_STATUS] = new OptionSetValue(100000004); //Approved status of ChangeEmailStatus field
-            caseToSolve[NEW_CHANGE_EMAIL_STATUS_REASON] = new OptionSetValue(100000002);//Approved - valid request
-            service.Update(caseToSolve);
-            //IS update needed?
-
+            var incident = new Entity(INCIDENT);
+            incident.Id = caseToSolve.Id;
+            incident[NEW_CHANGE_EMAIL_STATUS] = new OptionSetValue(100000004); //Approved status of ChangeEmailStatus field
+            incident[NEW_CHANGE_EMAIL_STATUS_REASON] = new OptionSetValue(100000002);//Approved - valid request
+            service.Update(incident);
 
             Entity caseResolution = new Entity(INCIDENT_RESOLUTION);
-            caseResolution.Attributes.Add(INCIDENT_ID, new EntityReference(INCIDENT, caseToSolve.Id));
+            caseResolution.Attributes.Add(INCIDENT_ID, new EntityReference(INCIDENT, incident.Id));
             caseResolution.Attributes.Add(SUBJECT, "Parent Case has been resolved");
 
             CloseIncidentRequest closeReq = new CloseIncidentRequest
             {
                 IncidentResolution = caseResolution,
                 RequestName = "CloseIncident",
-                Status = new OptionSetValue(5)
+                Status = new OptionSetValue(5) //Resolved
             };
             service.Execute(closeReq);
         }
@@ -217,7 +226,7 @@ namespace CustomWorkflows
 
             query.Criteria.AddCondition(new ConditionExpression(STATE_CODE, ConditionOperator.Equal, 0));
             query.Criteria.AddCondition(new ConditionExpression(CUSTOMER_ID, ConditionOperator.Equal, customer.Id));
-            query.Criteria.AddCondition(new ConditionExpression(TITLE, ConditionOperator.Equal, EMAIL_CHANGE));
+            query.Criteria.AddCondition(new ConditionExpression("subjectid", ConditionOperator.Equal, SUBJECT_EMAIL_CHANGE_GUID));
 
             query.Criteria.FilterOperator = LogicalOperator.And;
             query.Orders.Add(new OrderExpression(CREATED_ON, OrderType.Descending));

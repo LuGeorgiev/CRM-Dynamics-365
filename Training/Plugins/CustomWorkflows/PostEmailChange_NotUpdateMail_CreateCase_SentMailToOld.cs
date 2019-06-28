@@ -25,6 +25,8 @@ namespace CustomWorkflows
 
         protected override void Execute(CodeActivityContext context)
         {
+            #region Service instances and initail checkups
+
             IWorkflowContext workflowContext = context.GetExtension<IWorkflowContext>();
             IOrganizationServiceFactory serviceFactory = context.GetExtension<IOrganizationServiceFactory>();
             // Use the context service to create an instance of IOrganizationService.             
@@ -33,15 +35,26 @@ namespace CustomWorkflows
             ITracingService tracingService = context.GetExtension<ITracingService>();
             tracingService.Trace($"Start of: {WORKFLOW_NAME}");
 
-            if (workflowContext.Depth > 2)
+            if (workflowContext.Depth >= 2)
             {
-                tracingService.Trace("Depth is bigger than 1");
+                tracingService.Trace($"Depth is bigger than 1. Actual Depth: {workflowContext.Depth}");
                 return;
             }
+            if (workflowContext.MessageName.ToLower() != "update")
+            {
+                tracingService.Trace($"Context message was different than Update. It was: {workflowContext.MessageName}");
+                return;
+            }
+            #endregion
             try
             {
+                #region Delete previous traces
+
                 // Delete All traces for thise plugin
                 DeleteAllTracesForThisPlugIn(service);
+                #endregion
+
+                #region Pre and Post Image retrieval
 
                 //Retrieve Preimage for old mail
                 Entity preImage = null;
@@ -70,11 +83,8 @@ namespace CustomWorkflows
                     tracingService.Trace("Old or new email was found empty.");
                     return;
                 }
-
-                #region Anoter approach to access from OutArgument account and update Email
-                //Save old mail NOT WORKING WHEN CREATIN case do not save teh OLD email
-                //this.EmailOld.Set(context, oldEmail);
                 #endregion
+               
 
                 //Retrieve account ref from InArgument
                 EntityReference accountRef = this.AccountReference.Get(context);
@@ -83,34 +93,33 @@ namespace CustomWorkflows
                     tracingService.Trace("Account reference is null");
                     return;
                 }
-                Entity account = service.Retrieve(ACCOUNT, accountRef.Id, new ColumnSet(EMAIL_ATTRIBUTE));
-                if (account == null)
-                {
-                    tracingService.Trace("Account is null");
-                    return;
-                }
+                
                 //Save old email
-                account.Attributes[EMAIL_ATTRIBUTE] = oldEmail;
-                service.Update(account);
+                var accountToUpdate = new Entity(ACCOUNT);
+                accountToUpdate.Id = accountRef.Id;
+                accountToUpdate.Attributes[EMAIL_ATTRIBUTE] = oldEmail;
+                service.Update(accountToUpdate);
                 tracingService.Trace($"Account was updatet with old password - {oldEmail}");
 
+
                 //Create Case 
-                Entity newCaseEntity = CreateCase(service, accountRef.Id, oldEmail, newEmail);
+                Entity newCaseEntity = CreateCase(service, accountToUpdate.Id, oldEmail, newEmail);
                 tracingService.Trace($"Case to create");
                 //Save Case
-                service.Create(newCaseEntity);
+                var caseId = service.Create(newCaseEntity);
                 tracingService.Trace("Case sucessfully created");
 
                 //SENT EMAIL
                 // Creat TO and FROM party
-                Entity fromActivityParty = CreatFromPartySystem(service, tracingService);
-                Entity toActivityParty = CreatToPartyChangedAccount(accountRef, account);
+                Entity fromActivityParty = CreatFromPartySystem(workflowContext, tracingService);
+                Entity toActivityParty = CreatToPartyChangedAccount(accountToUpdate);
 
                 //CreateEmail
-                Entity email = CreatEmail(fromActivityParty, toActivityParty);
+                Entity email = CreatEmail(fromActivityParty, toActivityParty, caseId);
 
                 Guid emailId = service.Create(email);
-                tracingService.Trace($"Email with Id: {emailId} was created");
+                tracingService.Trace($"Email with Id: {emailId} was created");                
+
                 SendEmailRequest sendEmailRequest = new SendEmailRequest
                 {
                     EmailId = emailId,
@@ -130,7 +139,7 @@ namespace CustomWorkflows
             }            
         }
 
-        private static Entity CreatEmail(Entity fromActivityParty, Entity toActivityParty)
+        private static Entity CreatEmail(Entity fromActivityParty, Entity toActivityParty, Guid caseId)
         {
 
             //Creat email
@@ -138,36 +147,38 @@ namespace CustomWorkflows
             email["from"] = new Entity[] { fromActivityParty };
             email["to"] = new Entity[] { toActivityParty };
             email["subject"] = "Email change request";
-            email["description"] = "Dear Customer.Please CLICK to confirm you want to change the mail";
+            email["description"] = "WORKFLOW. Dear Customer.Please CLICK to confirm you want to change the mail";
             email["directioncode"] = true;
+            email["regardingobjectid"] = new EntityReference("incident", caseId);
 
             return email;
         }
 
-        private static Entity CreatToPartyChangedAccount(EntityReference accountRef, Entity account)
+        private static Entity CreatToPartyChangedAccount(Entity account)
         {
             Entity toActivityParty = new Entity(ACTIVITY_PARTY);
-            toActivityParty[PARTY_ID] = new EntityReference(ACCOUNT, accountRef.Id);
+            toActivityParty[PARTY_ID] = new EntityReference(ACCOUNT, account.Id);
             toActivityParty[ADDRESS_USED] = account[EMAIL_ATTRIBUTE];
+
             return toActivityParty;
         }
 
-        private static Entity CreatFromPartySystem(IOrganizationService service, ITracingService tracingService)
-        {
-            //TODO check how to sent from working user
+        private static Entity CreatFromPartySystem(IWorkflowContext workfloWContext, ITracingService tracingService)
+        {            
             Entity fromActivityParty = new Entity(ACTIVITY_PARTY);
-            WhoAmIRequest systemUserRequest = new WhoAmIRequest();
-            WhoAmIResponse systemUserResponse = (WhoAmIResponse)service.Execute(systemUserRequest);
 
-            Guid systemUserId = systemUserResponse.UserId;
-            fromActivityParty[PARTY_ID] = new EntityReference("systemuser", systemUserId);
+            //WhoAmIRequest systemUserRequest = new WhoAmIRequest();
+            //WhoAmIResponse systemUserResponse = (WhoAmIResponse)service.Execute(systemUserRequest);
+            //Guid systemUserId = systemUserResponse.UserId;
+
+            fromActivityParty[PARTY_ID] = new EntityReference("systemuser", workfloWContext.UserId);
             fromActivityParty[ADDRESS_USED] = "admin@plugin.com";
-            tracingService.Trace($"FROM active party created Id: {systemUserId}");
+            tracingService.Trace($"FROM active party created Id: {workfloWContext.UserId}");
 
             return fromActivityParty;
         }
 
-        private Entity CreateCase(IOrganizationService service, Guid targetId, string preImageEmail, string postImageEmail)
+        private Entity CreateCase(IOrganizationService service, Guid targetId, string oldEmail, string newEmail)
         {
             Entity incident = new Entity();
 
@@ -175,9 +186,9 @@ namespace CustomWorkflows
             incident["title"] = "Email change";
             incident["description"] = "This is Email change request.";
             incident["customerid"] = new EntityReference(ACCOUNT, targetId);
-            incident["new_changeemailstatus"] = new OptionSetValue(100000001); //InProgress ALL EXCEPTIONS AFTER THIS OptionsSet Included
-            incident["new_previousemail"] = preImageEmail;
-            incident[NEW_TO_CHANGE_EMAIL] = postImageEmail;
+            incident["new_changeemailstatus"] = new OptionSetValue(100000001); //InProgress
+            incident["new_previousemail"] = oldEmail;
+            incident[NEW_TO_CHANGE_EMAIL] = newEmail;
             incident["subjectid"] = new EntityReference("subject", Guid.Parse(SUBJECT_EMAIL_CHANGE_GUID));
 
             //incident.Attributes.Add("customerid", new EntityReference("account", targetId));
