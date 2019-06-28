@@ -15,6 +15,7 @@ namespace AccountCase.SecondTask.PlugIns
         private const string TARGET_ENTITY = "Target";
         private const string EMAIL_ATTRIBUTE = "emailaddress1";
         private const string ACTIVITY_PARTY = "activityparty";
+        private const string CONTACT = "contact";
         private const string PARTY_ID = "partyid";
         private const string ACCOUNT = "account";
         private const string ADDRESS_USED = "addressused";
@@ -22,6 +23,8 @@ namespace AccountCase.SecondTask.PlugIns
         private const string STATE_CODE = "statecode";
         private const string TITLE = "title";
         private const string NEW_CHANGE_EMAIL_STATUS = "new_changeemailstatus";
+        private const string SUBJECT_ID = "subjectid";
+        private const string SUBJECT_EMAIL_CHANGE_GUID = "D5911B1A-DA8D-E911-A81B-000D3ABA3097";
 
         //Delete Plugin trace constants
         private const string PLUGIN_TRACELOG_NAME = "AccountCase.SecondTask.PlugIns.PostEmailChangeBySystem_SentEmail";
@@ -35,12 +38,22 @@ namespace AccountCase.SecondTask.PlugIns
             var service = serviceFactory.CreateOrganizationService(context.UserId);
             var tracingService = (ITracingService)serviceProvider.GetService(typeof(ITracingService));
 
+            //Izzat 
+            //I can perfectly implement the approach with context.Depth==3. I had that idea but to my understanding this is very unstable approach and may lead to random triggers in large system.
+            //That is why I will stick to case Resolve. If you insist I will do it again. Coding is pleasure, after all :)
+
             //Check Depth and trace
-            if (context.Depth >= 2)
+            if (context.Depth > 3)
             {
-                tracingService.Trace($"Depth of plugin {PLUGIN_TRACELOG_NAME} more than 2 will return");
+                tracingService.Trace($"Depth of plugin {PLUGIN_TRACELOG_NAME} more than 2 will return. Depth is {context.Depth}");
                 return;
             }
+            if (context.MessageName.ToLower() != "update")
+            {
+                tracingService.Trace($"Context message was different than Update. It was: {context.MessageName}");
+                return;
+            }
+
             try
             {
 
@@ -60,16 +73,16 @@ namespace AccountCase.SecondTask.PlugIns
 
                     targetId = target.Id;
                 }
-                var incident = service.Retrieve("incident", targetId.Value, new ColumnSet(new[] { NEW_CHANGE_EMAIL_STATUS, CUSTOMER_ID, STATE_CODE, TITLE }));
+                var incident = service.Retrieve("incident", targetId.Value, new ColumnSet(new[] { NEW_CHANGE_EMAIL_STATUS, CUSTOMER_ID, STATE_CODE, SUBJECT_ID }));
                 var customerReference = incident?.GetAttributeValue<EntityReference>(CUSTOMER_ID);
                 var changeEmailStatus = incident?.GetAttributeValue<OptionSetValue>(NEW_CHANGE_EMAIL_STATUS);
                 var statusCode = incident?.GetAttributeValue<OptionSetValue>(STATE_CODE);
-                var title = incident?.GetAttributeValue<string>(TITLE);
+                var subjectId = incident?.GetAttributeValue<EntityReference>(SUBJECT_ID);
 
                 bool anyIsNull = customerReference == null
                     || changeEmailStatus == null
                     || statusCode == null
-                    || title == null;
+                    || subjectId == null;
                 if (anyIsNull)
                 {
                     tracingService.Trace("Any target value was null");
@@ -78,10 +91,10 @@ namespace AccountCase.SecondTask.PlugIns
                 // IF Account is the trigger Depth ==2 !!!!
 
 
-                bool isSentMailNeeded = changeEmailStatus.Value == 100000004
-                    && statusCode.Value == 1
-                    && title == "Email change";
-                if (isSentMailNeeded)
+                bool isSentMailNeeded = changeEmailStatus.Value == 100000004 //Resolved
+                                        && statusCode.Value == 1
+                                        && subjectId.Id == Guid.Parse(SUBJECT_EMAIL_CHANGE_GUID);
+                if (!isSentMailNeeded)
                 {
                     tracingService.Trace("Input values are not for that case");
                     return;
@@ -89,10 +102,20 @@ namespace AccountCase.SecondTask.PlugIns
 
                 //Create of TO party
                 var caseCustomer = service.Retrieve(ACCOUNT, customerReference.Id, new ColumnSet(EMAIL_ATTRIBUTE));
+                bool isContactInCustomer = false;
+
+                // IF NULL customer try if customerid is CONTACT not ACCOUNT
                 if (caseCustomer == null)
                 {
-                    tracingService.Trace($"Account was not retrieved. Value was null");
-                    return;
+                    caseCustomer = service.Retrieve(CONTACT, customerReference.Id, new ColumnSet(EMAIL_ATTRIBUTE));
+
+                    if (caseCustomer == null)
+                    {
+                        tracingService.Trace($"Customer was not retrieved from customerid: {customerReference.Id}");
+                        return;
+                    }
+
+                    isContactInCustomer = true;
                 }
                 tracingService.Trace($"account to sent mail retirved Id: {caseCustomer.Id}");
 
@@ -103,18 +126,23 @@ namespace AccountCase.SecondTask.PlugIns
                     return;
                 }
 
+                //Formin TO party
                 Entity toActivityParty = new Entity(ACTIVITY_PARTY);
-                toActivityParty[PARTY_ID] = new EntityReference(ACCOUNT, caseCustomer.Id);
+                if (isContactInCustomer)
+                {
+                    toActivityParty[PARTY_ID] = new EntityReference(CONTACT, caseCustomer.Id);
+                }
+                else
+                {
+                    toActivityParty[PARTY_ID] = new EntityReference(ACCOUNT, caseCustomer.Id);
+                }
                 toActivityParty[ADDRESS_USED] = caseCustomer[EMAIL_ATTRIBUTE];
 
-                //Retreive system user credentials to create FROM party
-                WhoAmIRequest systemUserRequest = new WhoAmIRequest();
-                WhoAmIResponse systemUserResponse = (WhoAmIResponse)service.Execute(systemUserRequest);
-                Guid systemUserId = systemUserResponse.UserId;
+                //Form FROM party                
                 Entity fromActivityParty = new Entity(ACTIVITY_PARTY);
-                fromActivityParty[PARTY_ID] = new EntityReference("systemuser", systemUserId);
+                fromActivityParty[PARTY_ID] = new EntityReference("systemuser", context.UserId);
                 fromActivityParty[ADDRESS_USED] = "admin@plugin.com";
-                tracingService.Trace($"FROM active party created Id: {systemUserId}");
+                tracingService.Trace($"FROM active party created Id: {context.UserId}");
 
                 //Sent Email
                 Entity email = new Entity("email");
@@ -123,6 +151,7 @@ namespace AccountCase.SecondTask.PlugIns
                 email["subject"] = "Email change request";
                 email["description"] = $"Dear Customer. Your email was changed. From now on you can access us only from {emailToSentTo}";
                 email["directioncode"] = true;
+                email["regardingobjectid"] = new EntityReference("incident", target.Id);
 
                 Guid emailId = service.Create(email);
                 tracingService.Trace($"Email with Id: {emailId} was created");
@@ -134,7 +163,7 @@ namespace AccountCase.SecondTask.PlugIns
                 };
 
                 SendEmailResponse sendEmailresp = (SendEmailResponse)service.Execute(sendEmailRequest);
-                tracingService.Trace($"Email was sent!");
+                tracingService.Trace($"Email was sent! Result: {sendEmailresp.Results}");
             }
             catch (InvalidPluginExecutionException ex)
             {

@@ -33,15 +33,22 @@ namespace AccountCase.SecondTask.PlugIns
 
             if (context.Depth >= 2)
             {
-                tracingService.Trace("Depth of plug in PreAccountEmailChange_CreateCaseKeepOldEmail more than 2 return");
+                tracingService.Trace("Depth of plug in PreAccountEmailChange_CreateCaseKeepOldEmail more than 1");
+                return;
+            }
+            if (context.MessageName.ToLower() != "update")
+            {
+                tracingService.Trace($"Context message was different than Update. It was: {context.MessageName}");
                 return;
             }
 
             try
             {
-                //NB
-                //Check for context.Message== UPDATE
-
+                if (service == null)
+                {
+                    tracingService.Trace("IServiceOrganization is null");
+                    return;
+                }
 
                 // Delete All traces for thise plugin
                 DeleteAllTracesForThisPlugIn(service);
@@ -55,35 +62,29 @@ namespace AccountCase.SecondTask.PlugIns
                                                 ? context.PostEntityImages[this.postImageAlias]
                                                 : null;
 
+                //RETIRED code
                 //if executing user and the modified by are same return;
-                var postModifiedBy = postImageEntity.GetAttributeValue<EntityReference>("modifiedby").Id;
-
-                //executing user
-                WhoAmIRequest systemUserRequest = new WhoAmIRequest();
-                WhoAmIResponse systemUserResponse = (WhoAmIResponse)service.Execute(systemUserRequest);
-                var executingUser = systemUserResponse.UserId;
-                if (postModifiedBy == executingUser)
-                {
-                    tracingService.Trace($"Executing user and modifiedBy user are same");
-                    return;
-                }
+                //var postModifiedBy = postImageEntity.GetAttributeValue<EntityReference>("modifiedby").Id;
+                //WhoAmIRequest systemUserRequest = new WhoAmIRequest();
+                //WhoAmIResponse systemUserResponse = (WhoAmIResponse)service.Execute(systemUserRequest);
+                //var executingUser = systemUserResponse.UserId;
+                //if (postModifiedBy == executingUser)
+                //{
+                //    tracingService.Trace($"Executing user and modifiedBy user are same");
+                //    return;
+                //}
 
 
                 Guid? targetId = null;
                 Entity target = null;
 
-                if (context.InputParameters.Contains(TARGET_ENTITY) && context.InputParameters[TARGET_ENTITY] is Entity)
+                if (context.InputParameters.Contains(TARGET_ENTITY) 
+                    && context.InputParameters[TARGET_ENTITY] is Entity)
                 {
                     target = (Entity)context.InputParameters[TARGET_ENTITY];
                     tracingService.Trace($"Entity {target.LogicalName} with id: {target.Id} retrieved");
 
                     targetId = target.Id;
-                }
-
-                if (service == null)
-                {
-                    tracingService.Trace("IServiceOrganization is null");
-                    return;
                 }
 
                 var preImageEmail = preImageEntity.GetAttributeValue<string>(EMAIL_ATTRIBUTE) ?? NOT_AVAILABLE;
@@ -92,22 +93,28 @@ namespace AccountCase.SecondTask.PlugIns
                 tracingService.Trace($"PreImage email: { preImageEmail }");
                 tracingService.Trace($"PostImage email: { postImageEmail }");
 
+                //Validate input
                 if (preImageEmail == postImageEmail
                     || targetId == null
                     || postImageEmail == NOT_AVAILABLE)
                 {
-                    tracingService.Trace($"Old mail: {preImageEmail} new mail: {postImageEmail} exit from pluging due to not changed or target entity id equals null");
+                    tracingService.Trace($"Old mail is: {preImageEmail}, new mail is: {postImageEmail}. Exit from pluging due to not changed or target entity id equals null!");
                     return;
                 }
 
+                //Create new case
                 Entity newCaseEntity = CreateCase(service, targetId.Value, preImageEmail, postImageEmail);
                 tracingService.Trace($"Case to create");
 
                 service.Create(newCaseEntity);
 
                 tracingService.Trace("Case created. To Save old mail value");
-                target[EMAIL_ATTRIBUTE] = preImageEmail;
-                service.Update(target);
+
+                var accountUpdate = new Entity("account");
+                accountUpdate.Id = target.Id;
+                accountUpdate.Attributes[EMAIL_ATTRIBUTE] = preImageEmail;
+
+                service.Update(accountUpdate);
 
                 tracingService.Trace("Sucessfully saved");
             }
@@ -126,12 +133,10 @@ namespace AccountCase.SecondTask.PlugIns
             incident["title"] = "Email change";
             incident["description"] = "This is Email change request.";
             incident["customerid"] = new EntityReference("account", targetId);
-            incident["new_changeemailstatus"] = new OptionSetValue(100000001); //InProgress ALL EXCEPTIONS AFTER THIS OptionsSet Included
+            incident["new_changeemailstatus"] = new OptionSetValue(100000001); //InProgress
             incident["new_previousemail"] = preImageEmail;
             incident["new_tochangeemail"] = postImageEmail;
             incident["subjectid"] = new EntityReference("subject", SUBJECT_EMAIL_CHANGE);
-
-            //incident.Attributes.Add("customerid", new EntityReference("account", targetId));
 
             return incident;
         }
@@ -153,7 +158,7 @@ namespace AccountCase.SecondTask.PlugIns
             {
                 ColumnSet = new ColumnSet(TYPE_NAME)
             };
-            traceByPlugin.Criteria.AddCondition(new ConditionExpression(TYPE_NAME, ConditionOperator.Equal, $"{pluginName}"));
+            traceByPlugin.Criteria.AddCondition(new ConditionExpression(TYPE_NAME, ConditionOperator.Equal, pluginName));
 
             return traceByPlugin;
         }

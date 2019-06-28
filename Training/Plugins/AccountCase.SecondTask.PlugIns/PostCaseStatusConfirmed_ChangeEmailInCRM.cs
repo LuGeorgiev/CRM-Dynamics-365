@@ -17,10 +17,12 @@ namespace AccountCase.SecondTask.PlugIns
         private readonly string postImageAlias = "PostImage";
 
         //Plugin constants
+        private const string ACCOUNT = "account";
         private const string CURRENT_PLUGIN_NAME = "PostCaseStatusConfirmed_ChangeEmailInCRM";
         private const string TARGET_ENTITY = "Target";
         private const string CUSTOMER_ID = "customerid";
         private const string CREATED_ON = "createdon";
+        private const string CONTACT = "contact";
         private const string NEW_CHANGE_EMAIL_STATUS = "new_changeemailstatus";
         private const string NEW_CHANGE_EMAIL_STATUS_REASON = "new_changeemailstatusreason";
         private const string NEW_TO_CHANGE_EMAIL = "new_tochangeemail";
@@ -31,9 +33,10 @@ namespace AccountCase.SecondTask.PlugIns
         private const string INCIDENT = "incident";
         private const string INCIDENT_RESOLUTION = "incidentresolution";
         private const string SUBJECT = "subject";
+        private const string SUBJECT_EMAIL_CHANGE_GUID = "D5911B1A-DA8D-E911-A81B-000D3ABA3097";
 
         //Delete Plugin trace constants
-        private const string PLUGIN_TRACELOG_NAME = "AccountCase.SecondTask.PlugIns.PostCaseStatusConfirmed_ChangeEmailInCRM";
+        private const string PLUGIN_TRACELOG_NAME = "PluginProfiler.Plugins.ProfilerPlugin";
         private const string TRACE_LOG_ENTITY = "plugintracelog";
         private const string TYPE_NAME = "typename";
 
@@ -46,7 +49,12 @@ namespace AccountCase.SecondTask.PlugIns
 
             if (context.Depth >= 2)
             {
-                tracingService.Trace($"Depth of plug in {CURRENT_PLUGIN_NAME} more than 2 return");
+                tracingService.Trace($"Depth of plug in {CURRENT_PLUGIN_NAME} more than 1 return. Current depth: {context.Depth}");
+                return;
+            }
+            if (context.MessageName.ToLower() != "update")
+            {
+                tracingService.Trace($"Context message was different than Update. It was: {context.MessageName}");
                 return;
             }
 
@@ -59,14 +67,12 @@ namespace AccountCase.SecondTask.PlugIns
                 Entity preImageEntity = (context.PreEntityImages != null
                                         && context.PreEntityImages.Contains(this.preImageAlias))
                                                 ? context.PreEntityImages[this.preImageAlias]
-                                                : null;
-                tracingService.Trace($"{preImageEntity.LogicalName} {string.Join(" ", preImageEntity.Attributes.Keys)}");
+                                                : null;                
 
                 Entity postImageEntity = (context.PostEntityImages != null
                                          && context.PostEntityImages.Contains(this.postImageAlias))
                                                 ? context.PostEntityImages[this.postImageAlias]
                                                 : null;
-                tracingService.Trace($"{postImageEntity.LogicalName} {string.Join(" ", postImageEntity.Attributes.Keys)}");
 
                 var preImageEmailChangeStatus = preImageEntity?.GetAttributeValue<OptionSetValue>(NEW_CHANGE_EMAIL_STATUS)?.Value;
                 var postImageEmailChangeStatus = postImageEntity?.GetAttributeValue<OptionSetValue>(NEW_CHANGE_EMAIL_STATUS)?.Value;
@@ -78,7 +84,7 @@ namespace AccountCase.SecondTask.PlugIns
                     || preImageEmailChangeStatus != 100000001 //InProcess
                     || postImageEmailChangeStatus != 100000002) //Confirmed
                 {
-                    tracingService.Trace("Transiotion from InProcess to Confirmed not observed!");
+                    tracingService.Trace("Transiotion from InProcess to Confirmed not observed or null - return!");
                     return;
                 }
 
@@ -94,29 +100,40 @@ namespace AccountCase.SecondTask.PlugIns
                 // ACCOUNT OR CONTACT CHECK
                 var incident = service.Retrieve(INCIDENT, Guid.Parse(incidentId), new ColumnSet(CUSTOMER_ID));
                 var customerRef = (EntityReference)incident.Attributes[CUSTOMER_ID];
-                Entity customer = service.Retrieve("account", customerRef.Id, new ColumnSet(true));//NOT TRUE
+                Entity customer = service.Retrieve(ACCOUNT, customerRef.Id, new ColumnSet(EMAIL_ATTRIBUTE));
+                bool isContactInCustomer = false;
+
+                // IF NULL customer try if customerid is CONTACT not ACCOUNT
+                if (customer == null)
+                {
+                    customer = service.Retrieve(CONTACT, customerRef.Id, new ColumnSet(EMAIL_ATTRIBUTE));
+
+                    if (customer == null)
+                    {
+                        tracingService.Trace($"Customer was not retrieved from customerid: {customerRef.Id}");
+                        return;
+                    }
+
+                    isContactInCustomer = true;
+                }
+
+                QueryExpression query = CreateQuery(customerRef);
+                var entityCollection = service.RetrieveMultiple(query);
 
                 var cases = new List<Entity>();
-                QueryExpression query = CreateQuery(customer);
-
-                var entityCollection = service.RetrieveMultiple(query);
                 cases.AddRange(entityCollection.Entities.ToList());
 
                 tracingService.Trace($"Cases retreived: {cases.Count}");
-                if (cases.Count == 0)
-                {
-                    tracingService.Trace("No casese were retrieved");
-                    return;
-                }
 
                 //Create new object with the same GUID and update only fields that are needed !!! NEW OBJECT ALWAYS
-                var caseToSolve = cases[0];
+                var caseToSolve = new Entity(INCIDENT);
+                caseToSolve.Id = cases[0].Id;
+
                 caseToSolve[NEW_CHANGE_EMAIL_STATUS] = new OptionSetValue(100000004); //Approved status of ChangeEmailStatus field
                 caseToSolve[NEW_CHANGE_EMAIL_STATUS_REASON] = new OptionSetValue(100000002);//Approved - valid request
                 service.Update(caseToSolve);
-                //IS Update needed?
 
-                string newMail = caseToSolve[NEW_TO_CHANGE_EMAIL].ToString();
+                string newMail = cases[0][NEW_TO_CHANGE_EMAIL].ToString();
 
                 //Resolve last case
                 Entity caseResolution = new Entity(INCIDENT_RESOLUTION);
@@ -136,14 +153,12 @@ namespace AccountCase.SecondTask.PlugIns
                 for (int i = 1; i < cases.Count; i++)
                 {
                     //Cancel all other cases
-                    //TODO Check
-                    var currentCase = cases[i];
+                    var currentCase = new Entity(INCIDENT);
+                    currentCase.Id = cases[i].Id;
                     currentCase[NEW_CHANGE_EMAIL_STATUS] = new OptionSetValue(100000003); //Declined status of ChangeEmailStatus field
                     currentCase[NEW_CHANGE_EMAIL_STATUS_REASON] = new OptionSetValue(100000001);//Cancelled-Duplicated record
                     service.Update(currentCase);
-                    //IS Update needed?
-
-                    //SECOND APPROACH
+                                        
                     SetStateRequest request = new SetStateRequest()
                     {
                         EntityMoniker = new EntityReference(INCIDENT, currentCase.Id),
@@ -175,11 +190,24 @@ namespace AccountCase.SecondTask.PlugIns
                 //var accountToChangeEmail = service.Retrieve("account", customer.Id, new ColumnSet(EMAIL_ATTRIBUTE));
 
                 //NEW OBJECT WITH this GUID
-                customer.Attributes[EMAIL_ATTRIBUTE] = newMail;
+                if (isContactInCustomer)
+                {
+                    var contact = new Entity(CONTACT);
+                    contact.Id = customer.Id;
+                    contact.Attributes[EMAIL_ATTRIBUTE] = newMail;
 
-                service.Update(customer);
-                tracingService.Trace($"Email of account {customer.Id} was changed to {newMail}");
+                    service.Update(contact);
+                    tracingService.Trace($"Email of contact {customer.Id} was changed to {newMail}");
+                }
+                else
+                {
+                    var account = new Entity(ACCOUNT);
+                    account.Id = customer.Id;
+                    account.Attributes[EMAIL_ATTRIBUTE] = newMail;
 
+                    service.Update(account);
+                    tracingService.Trace($"Email of account {customer.Id} was changed to {newMail}");
+                }
             }
             catch (InvalidPluginExecutionException ex)
             {
@@ -189,7 +217,7 @@ namespace AccountCase.SecondTask.PlugIns
             }
         }
 
-        private static QueryExpression CreateQuery(Entity customer)
+        private static QueryExpression CreateQuery(EntityReference customer)
         {
             var query = new QueryExpression(INCIDENT)
             {
@@ -203,7 +231,8 @@ namespace AccountCase.SecondTask.PlugIns
 
             query.Criteria.AddCondition(new ConditionExpression(STATE_CODE, ConditionOperator.Equal, 0));
             query.Criteria.AddCondition(new ConditionExpression(CUSTOMER_ID, ConditionOperator.Equal, customer.Id));
-            query.Criteria.AddCondition(new ConditionExpression("title", ConditionOperator.Equal, "Email change")); // BETTER SUBJECT GUID NOT STRING
+            query.Criteria.AddCondition(new ConditionExpression("subjectid", ConditionOperator.Equal, SUBJECT_EMAIL_CHANGE_GUID ));
+            //query.Criteria.AddCondition(new ConditionExpression("title", ConditionOperator.Equal, "Email change")); // BETTER SUBJECT GUID NOT STRING
 
             query.Criteria.FilterOperator = LogicalOperator.And;
             query.Orders.Add(new OrderExpression(CREATED_ON, OrderType.Descending));

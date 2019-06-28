@@ -9,17 +9,18 @@ namespace AccountCase.SecondTask.PlugIns
     public class OnCaseCreateIfEmailChangeSubject_SentEmail : IPlugin
     {
         //Plugin Constants
-        private const string TARGET_ENTITY = "Target";
-        private const string SUBJECT_ATTRIBUTE = "subjectid";
-        private const string PREVIOUS_EMAIL_ATTRIBUTE = "new_previousemail";
-        private const string TITLE = "title";
-        private const string ACTIVITY_PARTY = "activityparty";
-        private const string PARTY_ID = "partyid";
-        private const string CONTACT = "contact";
-        private const string PRIMARY_CONTACT_ID = "primarycontactid";
-        private const string EMAIL_ADDRES_1 = "emailaddress1";
         private const string ACCOUNT = "account";
+        private const string ACTIVITY_PARTY = "activityparty";
         private const string ADDRESS_USED = "addressused";
+        private const string CONTACT = "contact";
+        private const string EMAIL_ADDRES_1 = "emailaddress1";
+        private const string PARTY_ID = "partyid";
+        private const string PREVIOUS_EMAIL_ATTRIBUTE = "new_previousemail";
+        private const string PRIMARY_CONTACT_ID = "primarycontactid";
+        private const string SUBJECT_ATTRIBUTE = "subjectid";
+        private readonly Guid SUBJECT_EMAIL_CHANGE_GUID = Guid.Parse("D5911B1A-DA8D-E911-A81B-000D3ABA3097");
+        private const string TARGET_ENTITY = "Target";
+        private const string TITLE = "title";
 
         //Delete Plugin trace constants
         private const string PLUGIN_TRACELOG_NAME = "AccountCase.SecondTask.PlugIns.OnCaseCreateIfEmailChangeSubject_SentEmail";
@@ -36,7 +37,12 @@ namespace AccountCase.SecondTask.PlugIns
 
             if (context.Depth > 2)
             {
-                tracingService.Trace("Depth of plug in OnCaseCreateIfEmailChangeSubject_SentEmail more than 2 return");
+                tracingService.Trace($"Depth of plug in OnCaseCreateIfEmailChangeSubject_SentEmail more than 2 return. Depth value: {context.Depth}");
+                return;
+            }
+            if (context.MessageName.ToLower() != "create")
+            {
+                tracingService.Trace($"Context message was different than Create. It was: {context.MessageName}");
                 return;
             }
 
@@ -44,82 +50,80 @@ namespace AccountCase.SecondTask.PlugIns
             {
                 // Delete All traces for thise plugin
                 DeleteAllTracesForThisPlugIn(service);
+                tracingService.Trace("Start of plug in OnCaseCreateIfEmailChangeSubject_SentEmail");
 
-                tracingService.Trace("SET AS ASYNC: Start of plug in OnCaseCreateIfEmailChangeSubject_SentEmail");
-                Entity target = null;
-
+                //OnCase Create
+                Entity targetCase = null;
                 if (context.InputParameters.Contains(TARGET_ENTITY)
                     && context.InputParameters[TARGET_ENTITY] is Entity)
                 {
-                    target = context.InputParameters[TARGET_ENTITY] as Entity;
+                    targetCase = context.InputParameters[TARGET_ENTITY] as Entity;
                 }
-                var previousMail = target[PREVIOUS_EMAIL_ATTRIBUTE];
+                var previousMail = targetCase[PREVIOUS_EMAIL_ATTRIBUTE];
                 tracingService.Trace(previousMail.ToString());
 
-                Entity subject = null;
-                if (target.Attributes.Contains(SUBJECT_ATTRIBUTE))
+                //Entity subject = null;
+                EntityReference subjectId = null;
+                if (targetCase.Attributes.Contains(SUBJECT_ATTRIBUTE))
                 {
-                    EntityReference subjectId = (EntityReference)target.Attributes[SUBJECT_ATTRIBUTE];
-                    subject = service.Retrieve("subject", subjectId.Id, new ColumnSet(TITLE));
-                }
+                     subjectId = (EntityReference)targetCase.Attributes[SUBJECT_ATTRIBUTE];
+                }                
                 
-                //NB
-                // CHECK teh CUID for SUBJECT not the TITLE
-                if (subject == null
-                    || !subject.Attributes.Contains(TITLE)
-                    || subject.Attributes[TITLE].ToString() != "Email Change Request")
+                // CHECK teh GUID for SUBJECT not the TITLE
+                if (subjectId == null
+                    || subjectId.Id != SUBJECT_EMAIL_CHANGE_GUID)
                 {
                     tracingService.Trace("This case is not for changing emails");
                     return;
                 }
 
-                //Retreive system user credentials for FROM party
-                //Plugin Context WhoAmI will be the person that is making the change. SYSTEM have to be the FROM party or SINGLE user
+                //Code to retire
+                //WhoAmIRequest systemUserRequest = new WhoAmIRequest();
+                //WhoAmIResponse systemUserResponse = (WhoAmIResponse)service.Execute(systemUserRequest);                
+                //Guid systemUserId = systemUserResponse.UserId;
+                //fromActivityParty[PARTY_ID] = new EntityReference("systemuser", systemUserId);
 
-                WhoAmIRequest systemUserRequest = new WhoAmIRequest();
-                WhoAmIResponse systemUserResponse = (WhoAmIResponse)service.Execute(systemUserRequest);
-                Guid systemUserId = systemUserResponse.UserId;
+                //Retreive system user credentials for FROM party HOW TO SENT FROM SYSTEM
                 Entity fromActivityParty = new Entity(ACTIVITY_PARTY);
-                fromActivityParty[PARTY_ID] = new EntityReference("systemuser", systemUserId);
+                fromActivityParty[PARTY_ID] = new EntityReference("systemuser", context.UserId);
                 fromActivityParty[ADDRESS_USED] = "admin@plugin.com";
-                tracingService.Trace($"FROM active party created Id: {systemUserId}");
-
+                tracingService.Trace($"FROM active party created Id: {context.UserId}");
 
                 //Retreive Sending user credentials for To party
-                EntityReference customerRef = (EntityReference)target.Attributes["customerid"];
+                //TODO check if customerid is CONTACT not ACCOUNT
+                EntityReference customerRef = (EntityReference)targetCase.Attributes["customerid"];
                 if (customerRef == null)
                 {
                     tracingService.Trace($"Customer reference was not retrieved from customerid attribute");
                     return;
                 }
+
                 Entity caseCustomer = service.Retrieve(ACCOUNT, customerRef.Id, new ColumnSet(EMAIL_ADDRES_1));
-                if (caseCustomer == null) // IF NULL CONTACT
+                bool isContactInCustomer = false;
+
+                // IF NULL customer try if customerid is CONTACT not ACCOUNT
+                if (caseCustomer == null) 
                 {
-                    tracingService.Trace($"Customer was not retrieved from customerid: {customerRef.Id}");
-                    return;
+                    caseCustomer = service.Retrieve(CONTACT, customerRef.Id, new ColumnSet(EMAIL_ADDRES_1));
+
+                    if (caseCustomer == null)
+                    {
+                        tracingService.Trace($"Customer was not retrieved from customerid: {customerRef.Id}");
+                        return;
+                    }
+
+                    isContactInCustomer = true;
                 }
-                //NB
-                //Customer field may be CONTACT have to check weather it is account or contact !!!!
-
-                #region Not needed code to retrieve email from contact
-                //EntityReference contactRef = (EntityReference)caseCustomer.Attributes[PRIMARY_CONTACT_ID];
-                //if (contactRef ==null)
-                //{
-                //    tracingService.Trace("Contact reference was not retrieved from primarycontactid Attribute");
-                //    return;
-                //}
-                //was true
-                //Entity caseContact = service.Retrieve(CONTACT, contactRef.Id, new ColumnSet(true));
-                //if (caseContact==null)
-                //{
-                //    tracingService.Trace($"Contact was not retrieved Id: {contactRef.Id}");
-                //    return;
-                //}
-
-                #endregion
-
+                                
                 Entity toActivityParty = new Entity(ACTIVITY_PARTY);
-                toActivityParty[PARTY_ID] = new EntityReference(ACCOUNT, caseCustomer.Id);
+                if (isContactInCustomer)
+                {
+                    toActivityParty[PARTY_ID] = new EntityReference(CONTACT, caseCustomer.Id);
+                }
+                else
+                {
+                    toActivityParty[PARTY_ID] = new EntityReference(ACCOUNT, caseCustomer.Id);
+                }
                 toActivityParty[ADDRESS_USED] = caseCustomer[EMAIL_ADDRES_1];
 
                 Entity email = new Entity("email");
@@ -128,9 +132,9 @@ namespace AccountCase.SecondTask.PlugIns
                 email["subject"] = "Email change request";
                 email["description"] = "Dear Customer.Please CLICK to confirm you want to change the mail";
                 email["directioncode"] = true;
-                //NB
-                //ADD REGARDING FIELD 
-
+                //NB!! regarding is very important
+                email["regardingobjectid"] = new EntityReference("incident",targetCase.Id);
+                
                 Guid emailId = service.Create(email);
                 tracingService.Trace($"Email with Id: {emailId} was created");
                 SendEmailRequest sendEmailRequest = new SendEmailRequest
@@ -141,7 +145,7 @@ namespace AccountCase.SecondTask.PlugIns
                 };
 
                 SendEmailResponse sendEmailresp = (SendEmailResponse)service.Execute(sendEmailRequest);
-                tracingService.Trace($"Email was sent!");
+                tracingService.Trace($"Email was sent! Result: {sendEmailresp.Results}");
 
             }
             catch (Exception ex)
